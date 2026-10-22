@@ -8,7 +8,7 @@
 
     <ion-content :fullscreen="true" class="ion-padding">
       <ion-note v-if="config.flags.welcomeBanner" color="success">
-        <p><strong>New:</strong> this banner is switched on by a flag in config.json, not by a deploy.</p>
+        <p><strong>New:</strong> this banner is turned on by a flag in config.json, without a new deploy.</p>
       </ion-note>
       <p>Build: <strong>{{ appVersion }}</strong> · Env: <strong>{{ config.env }}</strong></p>
       <p>Status: <strong>{{ status }}</strong></p>
