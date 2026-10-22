@@ -1,0 +1,44 @@
+name: Rollback production
+
+# Puts an earlier production build back, byte for byte: no revert, no rebuild.
+# Leave tag empty to go back to the release before the current one.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: prod-YYYY-MM-DD.N release to restore (empty = the one before the latest)
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - id: pick
+        env:
+          WANT: ${{ inputs.tag }}
+        run: |
+          if [ -n "$WANT" ]; then TAG="$WANT"; else
+            TAG=$(gh release list -R "${{ github.repository }}" --limit 50 --json tagName --jq '[.[].tagName | select(startswith("prod-"))][1] // ""')
+          fi
+          [ -z "$TAG" ] && { echo "No earlier production release to roll back to."; exit 1; }
+          gh release view "$TAG" -R "${{ github.repository }}" --json assets --jq '.assets[].name' | grep -qx web-build.zip \
+            || { echo "$TAG has no web-build.zip attached."; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  restore:
+    needs: pick
+    concurrency:
+      group: production
+      cancel-in-progress: true
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      environment: production
+      release_tag: ${{ needs.pick.outputs.tag }}

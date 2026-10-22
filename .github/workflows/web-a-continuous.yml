@@ -3,9 +3,9 @@ name: "Web A: continuous"
 # How large teams run a backend or web app: no version numbers. Every merge to main deploys to
 # dev; production waits for an approval and is then tagged prod-YYYY-MM-DD.N for rollback,
 # with release notes generated from the merged PRs.
+# Superseded by pipeline.yml; kept runnable by hand for comparison.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write

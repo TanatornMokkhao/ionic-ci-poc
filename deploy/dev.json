@@ -1,0 +1,7 @@
+{
+  "env": "dev",
+  "apiBaseUrl": "https://api.dev.example.com",
+  "flags": {
+    "welcomeBanner": true
+  }
+}
