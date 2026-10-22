@@ -1,0 +1,7 @@
+{
+  "env": "production",
+  "apiBaseUrl": "https://api.example.com",
+  "flags": {
+    "welcomeBanner": false
+  }
+}

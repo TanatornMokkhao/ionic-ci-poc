@@ -3,9 +3,9 @@ name: "Web B: release PR"
 # Every push to main updates one open "release" PR with the next version and changelog,
 # worked out from conventional commit titles. Merging that PR tags web-vX.Y.Z and creates the
 # GitHub release; the production deploy then waits for an approval on the environment.
+# Kept runnable by hand for comparison; pipeline.yml is the default path.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write

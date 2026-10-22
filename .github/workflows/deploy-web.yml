@@ -1,0 +1,75 @@
+name: Deploy web
+
+# Puts an already-built web bundle on one environment. Called by pipeline.yml and rollback.yml.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      artifact:
+        description: Workflow artifact holding web-build.zip (leave empty when release_tag is set)
+        type: string
+        default: ''
+      release_tag:
+        description: Take web-build.zip from this release instead (used for rollback)
+        type: string
+        default: ''
+      record_release:
+        description: Tag prod-YYYY-MM-DD.N and attach the build to a GitHub release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get the build from this run
+        if: ${{ inputs.artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+
+      - name: Get the build from a release
+        if: ${{ inputs.release_tag != '' }}
+        run: gh release download "${{ inputs.release_tag }}" --pattern web-build.zip
+
+      - name: Add this environment's config
+        run: |
+          mkdir site && unzip -q web-build.zip -d site
+          cp "deploy/${{ inputs.environment }}.json" site/config.json
+          echo "config.json for ${{ inputs.environment }}:"; cat site/config.json
+
+      # Stands in for "aws s3 sync site/ s3://<bucket>" + a CloudFront invalidation.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: site
+
+      - name: Record the production release
+        if: ${{ inputs.record_release }}
+        run: |
+          DAY=$(date -u +%Y-%m-%d)
+          N=$(( $(git tag --list "prod-$DAY.*" | wc -l) + 1 ))
+          TAG="prod-$DAY.$N"
+          gh release create "$TAG" web-build.zip --target "$GITHUB_SHA" --generate-notes --title "Production $TAG"
+          echo "RELEASED=$TAG" >> "$GITHUB_ENV"
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ inputs.environment }} now runs ${{ inputs.release_tag || github.sha }}"
+            [ -n "${RELEASED:-}" ] && echo "Recorded as release **$RELEASED** (build attached for rollback)."
+            echo ""
+            echo '```json'; cat site/config.json; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

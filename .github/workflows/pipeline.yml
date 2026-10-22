@@ -1,0 +1,62 @@
+name: Pipeline
+
+# The large-team pattern in one file:
+# - build once per commit, then promote that same build to dev, staging and production;
+# - per-environment settings and flags come from deploy/<env>.json at deploy time, not at build;
+# - only production waits for a person, and only the newest change waits (older ones are cancelled);
+# - every production deploy is a GitHub release with the exact build attached, for rollback.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run
+      - run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ github.sha }}
+      - name: Package the build
+        run: cd dist && zip -qr "$GITHUB_WORKSPACE/web-build.zip" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.sha }}
+          path: web-build.zip
+          retention-days: 90
+
+  deploy-dev:
+    needs: build
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      environment: dev
+      artifact: build-${{ github.sha }}
+
+  deploy-staging:
+    needs: deploy-dev
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      environment: staging
+      artifact: build-${{ github.sha }}
+
+  deploy-production:
+    needs: deploy-staging
+    # A newer merge replaces an older one that is still waiting for approval.
+    concurrency:
+      group: production
+      cancel-in-progress: true
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      environment: production
+      artifact: build-${{ github.sha }}
+      record_release: true
