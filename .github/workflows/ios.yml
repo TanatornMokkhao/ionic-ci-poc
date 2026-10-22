@@ -39,6 +39,26 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Launch in Simulator and screenshot
+        env:
+          BUNDLE_ID: com.tanatorn.ioniccipoc
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          echo "Simulator: $DEVICE"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl launch "$DEVICE" "$BUNDLE_ID"
+          sleep 20
+          # Fails the job if the app crashed after launch.
+          xcrun simctl spawn "$DEVICE" launchctl list | grep "UIKitApplication:$BUNDLE_ID"
+          xcrun simctl io "$DEVICE" screenshot ios-screenshot.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-screenshot
+          path: ios-screenshot.png
+
       - name: Zip .app
         run: cd ios/App/build/Build/Products/Debug-iphonesimulator && zip -r "$GITHUB_WORKSPACE/App-simulator.zip" App.app
 
