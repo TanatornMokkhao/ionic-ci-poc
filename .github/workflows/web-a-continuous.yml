@@ -1,0 +1,72 @@
+name: "Web A: continuous"
+
+# How large teams run a backend or web app: no version numbers. Every merge to main deploys to
+# dev; production waits for an approval and is then tagged prod-YYYY-MM-DD.N for rollback,
+# with release notes generated from the merged PRs.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-a-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      VITE_APP_VERSION: ${{ github.sha }}
+      VITE_API_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Stands in for "aws s3 sync dist/ s3://<dev bucket>".
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-a-dev-${{ github.sha }}
+          path: dist
+
+  deploy-prod:
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_API_ENV: prod
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Name this production deploy
+        id: tag
+        run: |
+          DAY=$(date -u +%Y-%m-%d)
+          N=$(( $(git tag --list "prod-$DAY.*" | wc -l) + 1 ))
+          echo "tag=prod-$DAY.$N" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ steps.tag.outputs.tag }}
+      # Stands in for "aws s3 sync dist/ s3://<prod bucket>" + a CloudFront invalidation.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-a-${{ steps.tag.outputs.tag }}
+          path: dist
+
+      - name: Tag and release notes
+        run: gh release create "${{ steps.tag.outputs.tag }}" --target "$GITHUB_SHA" --generate-notes --title "Production ${{ steps.tag.outputs.tag }}"

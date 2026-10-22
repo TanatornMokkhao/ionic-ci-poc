@@ -1,0 +1,71 @@
+name: "Mobile 3: build a web release"
+
+# One version per repo: the app ships the same number as an existing web release. Leave the tag
+# empty to build the latest web-v* or manual-v* release; the app version is the number in it.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build (empty = latest web-v* or manual-v*)
+        type: string
+        default: ''
+      api:
+        description: API the build talks to
+        type: choice
+        options: [prod, staging]
+        default: prod
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      version: ${{ steps.pick.outputs.version }}
+      build_number: ${{ steps.pick.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pick the release
+        id: pick
+        env:
+          WANT: ${{ inputs.tag }}
+        run: |
+          TAG="${WANT:-$(git tag --list 'web-v*' 'manual-v*' --sort=-creatordate | head -1)}"
+          if [ -z "$TAG" ] || ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "No release tag found. Make a web release first (Web B or Web C)."; exit 1
+          fi
+          VERSION="${TAG##*-v}"
+          [ "${{ inputs.api }}" = staging ] && VERSION="$VERSION-qa.${{ github.run_number }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(( ${{ github.run_number }} + 600 ))" >> "$GITHUB_OUTPUT"
+          echo "### Building app $VERSION from $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: pick
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.pick.outputs.tag }}
+      version_name: ${{ needs.pick.outputs.version }}
+      version_code: ${{ needs.pick.outputs.build_number }}
+      api_env: ${{ inputs.api }}
+      upload_play: true
+
+  ios:
+    needs: pick
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.pick.outputs.tag }}
+      version_name: ${{ needs.pick.outputs.version }}
+      build_number: ${{ needs.pick.outputs.build_number }}
+      api_env: ${{ inputs.api }}

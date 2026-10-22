@@ -1,0 +1,67 @@
+name: "Mobile 1: release train"
+
+# Fixed cadence: each run is the next train. The version always moves up one minor
+# (train-v1.1.0, train-v1.2.0 ...); nobody chooses a number. Turn the schedule on to make it
+# run by itself every other Monday.
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: API the build talks to
+        type: choice
+        options: [prod, staging]
+        default: prod
+  # schedule:
+  #   - cron: '0 2 * * 1'   # Mondays 02:00 UTC; add a week-parity check for every other week
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      build_number: ${{ steps.next.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Next train
+        id: next
+        run: |
+          LAST=$(git tag --list 'train-v*' --sort=-v:refname | head -1)
+          LAST=${LAST#train-v}; LAST=${LAST:-1.0.0}
+          IFS=. read -r MA MI PA <<< "$LAST"
+          VERSION="$MA.$((MI+1)).0"
+          [ "${{ inputs.api || 'prod' }}" = staging ] && VERSION="$VERSION-qa.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(( ${{ github.run_number }} + 300 ))" >> "$GITHUB_OUTPUT"
+      - name: Tag (prod builds only)
+        if: ${{ (inputs.api || 'prod') == 'prod' }}
+        run: |
+          git tag "train-v${{ steps.next.outputs.version }}" "$GITHUB_SHA"
+          git push origin "train-v${{ steps.next.outputs.version }}"
+
+  android:
+    needs: version
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+    with:
+      version_name: ${{ needs.version.outputs.version }}
+      version_code: ${{ needs.version.outputs.build_number }}
+      api_env: ${{ inputs.api || 'prod' }}
+      upload_play: true
+
+  ios:
+    needs: version
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+    with:
+      version_name: ${{ needs.version.outputs.version }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      api_env: ${{ inputs.api || 'prod' }}

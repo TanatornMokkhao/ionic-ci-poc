@@ -1,0 +1,62 @@
+name: "Web C: pick the bump"
+
+# A person presses Run workflow and picks patch / minor / major. After the production approval
+# the workflow tags manual-vX.Y.Z and writes release notes from the merged PRs.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump from the latest manual-v tag
+        type: choice
+        options: [patch, minor, major]
+        default: minor
+
+permissions:
+  contents: write
+
+concurrency:
+  group: web-c
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VITE_API_ENV: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Next version
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          LAST=$(git tag --list 'manual-v*' --sort=-v:refname | head -1)
+          LAST=${LAST#manual-v}; LAST=${LAST:-0.0.0}
+          IFS=. read -r MA MI PA <<< "$LAST"
+          case "$BUMP" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            patch) PA=$((PA+1)) ;;
+          esac
+          echo "version=$MA.$MI.$PA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ steps.next.outputs.version }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-c-manual-v${{ steps.next.outputs.version }}
+          path: dist
+
+      - name: Tag and release notes
+        run: gh release create "manual-v${{ steps.next.outputs.version }}" --target "$GITHUB_SHA" --generate-notes

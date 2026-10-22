@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      ref:
+        type: string
+        default: ''
       version_name:
         type: string
         default: 0.0.0-dev
@@ -33,6 +36,8 @@ jobs:
       HAS_GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: actions/setup-node@v4
         with:

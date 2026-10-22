@@ -1,4 +1,4 @@
-name: Mobile test build
+name: "Mobile 2: pick the bump"
 
 # Run from the Actions tab: pick the bump, platforms and API, and the workflow tags app-vX.Y.Z
 # itself. Builds go to test channels only; releasing to the stores stays a manual step.

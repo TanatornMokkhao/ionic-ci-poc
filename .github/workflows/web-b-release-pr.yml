@@ -1,7 +1,7 @@
-name: Release (web)
+name: "Web B: release PR"
 
 # Every push to main updates one open "release" PR with the next version and changelog,
-# worked out from conventional commit titles. Merging that PR tags vX.Y.Z and creates the
+# worked out from conventional commit titles. Merging that PR tags web-vX.Y.Z and creates the
 # GitHub release; the production deploy then waits for an approval on the environment.
 on:
   push:
