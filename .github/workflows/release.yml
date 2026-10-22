@@ -1,0 +1,56 @@
+name: Release (web)
+
+# Every push to main updates one open "release" PR with the next version and changelog,
+# worked out from conventional commit titles. Merging that PR tags vX.Y.Z and creates the
+# GitHub release; the production deploy then waits for an approval on the environment.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  deploy-production:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.created == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VITE_APP_VERSION: ${{ needs.release-please.outputs.version }}
+      VITE_API_ENV: prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # Stands in for "aws s3 sync dist/ s3://<prod bucket>" + a CloudFront invalidation.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ needs.release-please.outputs.tag }}
+          path: dist
+
+      - name: Summary
+        run: echo "### Deployed web ${{ needs.release-please.outputs.tag }} to production (simulated)" >> "$GITHUB_STEP_SUMMARY"

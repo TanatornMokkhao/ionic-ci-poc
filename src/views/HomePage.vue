@@ -7,6 +7,7 @@
     </ion-header>
 
     <ion-content :fullscreen="true" class="ion-padding">
+      <p>Build: <strong>{{ appVersion }}</strong> · API: <strong>{{ apiEnv }}</strong></p>
       <p>Status: <strong>{{ status }}</strong></p>
 
       <ion-button expand="block" :disabled="!isNative" @click="register">Register for push</ion-button>
@@ -41,6 +42,8 @@ import {
   IonButton, IonContent, IonHeader, IonItem, IonLabel, IonList, IonPage, IonTextarea, IonTitle, IonToolbar,
 } from '@ionic/vue';
 
+const appVersion = import.meta.env.VITE_APP_VERSION || 'local';
+const apiEnv = import.meta.env.VITE_API_ENV || 'dev';
 const isNative = Capacitor.isNativePlatform();
 const status = ref(isNative ? 'Not registered' : 'Browser');
 const token = ref('');

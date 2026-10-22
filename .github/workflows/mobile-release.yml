@@ -1,0 +1,100 @@
+name: Mobile test build
+
+# Run from the Actions tab: pick the bump, platforms and API, and the workflow tags app-vX.Y.Z
+# itself. Builds go to test channels only; releasing to the stores stays a manual step.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump from the latest app-v tag
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      platforms:
+        description: Which apps to build
+        type: choice
+        options: [both, android, ios]
+        default: both
+      api:
+        description: API the build talks to
+        type: choice
+        options: [prod, staging]
+        default: prod
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      build_number: ${{ steps.next.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Next version
+        id: next
+        env:
+          BUMP: ${{ inputs.bump }}
+          API: ${{ inputs.api }}
+        run: |
+          LAST=$(git tag --list 'app-v*' --sort=-v:refname | grep -E '^app-v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          LAST=${LAST#app-v}; LAST=${LAST:-0.0.0}
+          IFS=. read -r MA MI PA <<< "$LAST"
+          case "$BUMP" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            patch) PA=$((PA+1)) ;;
+          esac
+          VERSION="$MA.$MI.$PA"
+          # A staging build gets a suffix so it can never be mistaken for a store candidate.
+          [ "$API" = staging ] && VERSION="$VERSION-qa.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(( ${{ github.run_number }} + 100 ))" >> "$GITHUB_OUTPUT"
+          echo "Last app tag: ${LAST} -> next: ${VERSION}"
+
+      - name: Tag (prod builds only)
+        if: ${{ inputs.api == 'prod' }}
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          git tag "app-v$VERSION" "$GITHUB_SHA"
+          git push origin "app-v$VERSION"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          {
+            echo "### Mobile test build $VERSION"
+            echo "- bump: ${{ inputs.bump }} · platforms: ${{ inputs.platforms }} · api: ${{ inputs.api }}"
+            echo "- build number: ${{ steps.next.outputs.build_number }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: version
+    if: ${{ inputs.platforms != 'ios' }}
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+    with:
+      version_name: ${{ needs.version.outputs.version }}
+      version_code: ${{ needs.version.outputs.build_number }}
+      api_env: ${{ inputs.api }}
+      upload_play: true
+
+  ios:
+    needs: version
+    if: ${{ inputs.platforms != 'android' }}
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+    with:
+      version_name: ${{ needs.version.outputs.version }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      api_env: ${{ inputs.api }}
