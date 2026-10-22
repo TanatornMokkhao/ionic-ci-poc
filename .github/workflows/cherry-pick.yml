@@ -1,0 +1,47 @@
+name: "Cherry-pick into a release"
+
+# Copies one merged PR from main into release/X.Y and opens a PR for a person to merge.
+# The fix always lands on main first, so the next release branch already has it.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Merged PR number on main
+        type: string
+        required: true
+      release:
+        description: Release line, e.g. 1.0 (empty = the newest release/*)
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cherry-pick:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ inputs.pr }}
+      LINE: ${{ inputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Cherry-pick and open the PR
+        run: |
+          read -r STATE SHA <<< "$(gh pr view "$PR" --json state,mergeCommit --jq '"\(.state) \(.mergeCommit.oid // "")"')"
+          [ "$STATE" = MERGED ] || { echo "PR #$PR is $STATE, not merged into main."; exit 1; }
+          TITLE=$(gh pr view "$PR" --json title --jq .title)
+          [ -n "$LINE" ] || LINE=$(git ls-remote --heads origin 'release/*' | sed 's#.*refs/heads/release/##' | sort -V | tail -1)
+          git ls-remote --exit-code --heads origin "release/$LINE" >/dev/null || { echo "release/$LINE does not exist."; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="cherry-pick/pr-$PR-to-$LINE"
+          git switch -c "$BRANCH" "origin/release/$LINE"
+          git cherry-pick -x "$SHA" || { echo "Conflict: cherry-pick by hand."; exit 1; }
+          git push origin "$BRANCH"
+          gh pr create --base "release/$LINE" --head "$BRANCH" \
+            --title "$TITLE (release $LINE)" \
+            --body "Cherry-pick of #$PR into release/$LINE. Merging builds the next patch for the test channels."

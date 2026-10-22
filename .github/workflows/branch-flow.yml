@@ -1,0 +1,56 @@
+name: "Branch flow (staging / master)"
+
+# Option B for comparison: one branch per environment. A PR from main into staging deploys
+# staging; a PR from staging into master deploys production. Each branch builds its own copy,
+# so what reaches production is a new build, not the one tested on staging.
+on:
+  push:
+    branches: [staging, master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: branch-flow-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'master' && 'production-branch' || 'staging-branch' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CONFIG: ${{ github.ref_name == 'master' && 'production' || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_APP_VERSION: ${{ github.ref_name }}@${{ github.sha }}
+      - run: cp "deploy/$CONFIG.json" dist/config.json
+
+      # Stands in for "aws s3 sync dist/ s3://<bucket>" + a CloudFront invalidation.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: branch-${{ github.ref_name }}-${{ github.sha }}
+          path: dist
+
+      - name: Tag the production deploy
+        if: ${{ github.ref_name == 'master' }}
+        run: |
+          DAY=$(date -u +%Y-%m-%d)
+          N=$(( $(git tag --list "branch-prod-$DAY.*" | wc -l) + 1 ))
+          gh release create "branch-prod-$DAY.$N" --target "$GITHUB_SHA" --generate-notes --title "Production (branch flow) $DAY.$N"
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ github.ref_name }} deployed to $CONFIG"
+            echo "Built again on this branch at ${GITHUB_SHA:0:7}."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,55 @@
+name: "Mobile: patch build"
+
+# Every merge into release/X.Y (a cherry-picked fix) builds X.Y.(n+1) for the test channels.
+on:
+  push:
+    branches: ['release/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      build_number: ${{ steps.next.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Next patch
+        id: next
+        run: |
+          LINE="${GITHUB_REF_NAME#release/}"
+          LAST=$(git tag --list "app-v$LINE.*" | sed "s/^app-v$LINE\.//" | sort -n | tail -1)
+          VERSION="$LINE.$(( ${LAST:--1} + 1 ))"
+          git tag "app-v$VERSION" "$GITHUB_SHA" && git push origin "app-v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(( ${{ github.run_number }} + 1200 ))" >> "$GITHUB_OUTPUT"
+          echo "### $GITHUB_REF_NAME: building patch $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: version
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+    with:
+      ref: ${{ github.sha }}
+      version_name: ${{ needs.version.outputs.version }}
+      version_code: ${{ needs.version.outputs.build_number }}
+      api_env: prod
+      upload_play: true
+
+  ios:
+    needs: version
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+    with:
+      ref: ${{ github.sha }}
+      version_name: ${{ needs.version.outputs.version }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      api_env: prod
