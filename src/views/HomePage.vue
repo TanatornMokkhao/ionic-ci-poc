@@ -2,55 +2,75 @@
   <ion-page>
     <ion-header :translucent="true">
       <ion-toolbar>
-        <ion-title>Blank</ion-title>
+        <ion-title>Push test</ion-title>
       </ion-toolbar>
     </ion-header>
 
-    <ion-content :fullscreen="true">
-      <ion-header collapse="condense">
-        <ion-toolbar>
-          <ion-title size="large">Blank</ion-title>
-        </ion-toolbar>
-      </ion-header>
+    <ion-content :fullscreen="true" class="ion-padding">
+      <p>Status: <strong>{{ status }}</strong></p>
 
-      <div id="container">
-        <strong>Ready to create an app?</strong>
-        <p>Start with Ionic <a target="_blank" rel="noopener noreferrer" href="https://ionicframework.com/docs/components">UI Components</a></p>
-      </div>
+      <ion-button expand="block" :disabled="!isNative" @click="register">Register for push</ion-button>
+      <p v-if="!isNative">Push works only in the Android app, not in the browser.</p>
+
+      <template v-if="token">
+        <p>FCM token:</p>
+        <ion-textarea :value="token" readonly auto-grow fill="outline" />
+        <ion-button expand="block" fill="outline" @click="copyToken">Copy token</ion-button>
+      </template>
+
+      <template v-if="messages.length">
+        <h3>Received</h3>
+        <ion-list>
+          <ion-item v-for="(m, i) in messages" :key="i">
+            <ion-label>
+              <h2>{{ m.title }}</h2>
+              <p>{{ m.body }}</p>
+            </ion-label>
+          </ion-item>
+        </ion-list>
+      </template>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { IonContent, IonHeader, IonPage, IonTitle, IonToolbar } from '@ionic/vue';
+import { ref, onMounted } from 'vue';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
+import {
+  IonButton, IonContent, IonHeader, IonItem, IonLabel, IonList, IonPage, IonTextarea, IonTitle, IonToolbar,
+} from '@ionic/vue';
+
+const isNative = Capacitor.isNativePlatform();
+const status = ref(isNative ? 'Not registered' : 'Browser');
+const token = ref('');
+const messages = ref<{ title: string; body: string }[]>([]);
+
+onMounted(async () => {
+  if (!isNative) return;
+  await PushNotifications.addListener('registration', (t) => {
+    token.value = t.value;
+    status.value = 'Registered';
+  });
+  await PushNotifications.addListener('registrationError', (e) => {
+    status.value = `Error: ${e.error}`;
+  });
+  await PushNotifications.addListener('pushNotificationReceived', (n) => {
+    messages.value.unshift({ title: n.title ?? '', body: n.body ?? '' });
+  });
+});
+
+async function register() {
+  const perm = await PushNotifications.requestPermissions();
+  if (perm.receive !== 'granted') {
+    status.value = 'Permission denied';
+    return;
+  }
+  status.value = 'Registering...';
+  await PushNotifications.register();
+}
+
+async function copyToken() {
+  await navigator.clipboard.writeText(token.value);
+}
 </script>
-
-<style scoped>
-#container {
-  text-align: center;
-  
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-#container strong {
-  font-size: 20px;
-  line-height: 26px;
-}
-
-#container p {
-  font-size: 16px;
-  line-height: 22px;
-  
-  color: #8c8c8c;
-  
-  margin: 0;
-}
-
-#container a {
-  text-decoration: none;
-}
-</style>

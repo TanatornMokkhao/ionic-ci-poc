@@ -63,9 +63,21 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease bundleRelease
 
+      - name: Check Firebase config is in the APK
+        if: ${{ env.HAS_GOOGLE_SERVICES == 'true' }}
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)
+          "$AAPT" dump resources android/app/build/outputs/apk/debug/app-debug.apk | grep -q google_app_id
+
       - name: Remove keystore
         if: ${{ always() }}
         run: rm -f "$RUNNER_TEMP/release.keystore" android/app/google-services.json
+
+      - name: Check no secret files are left for upload
+        run: |
+          if find android/app/build/outputs -iname '*.keystore' -o -iname '*.jks' -o -iname 'google-services.json' | grep -q .; then
+            echo "Secret file found in build outputs"; exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

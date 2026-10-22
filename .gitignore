@@ -41,5 +41,6 @@ keystore.properties
 google-services.json
 GoogleService-Info.plist
 *service-account*.json
+*adminsdk*.json
 .env
 .env.*
